@@ -1,0 +1,210 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------------------------------
+// 1. USER / CUSTOMER ENTITY
+// ------------------------------------------------------
+model User {
+  id           String         @id @default(cuid())
+  name         String
+  email        String         @unique
+  phone        String?
+  password     String?        // Hashed password or auth credential
+  address      String?
+  role         String         @default("CUSTOMER") // CUSTOMER | ADMIN | TECHNICIAN
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  serviceOrders ServiceOrder[] @relation("CustomerServiceOrders")
+  notifications Notification[] @relation("UserNotifications")
+  notificationRecipients NotificationRecipient[] @relation("UserNotificationRecipients")
+
+  @@map("users")
+}
+
+// ------------------------------------------------------
+// 2. SERVICE ENTITY (Service Catalog)
+// ------------------------------------------------------
+model Service {
+  id                String         @id @default(cuid())
+  name              String
+  description       String
+  category          String         // Hardware Repair, Hardware Upgrade, OS & Software, Network, Data Recovery
+  priceFrom         Float          @map("price_from")
+  estimatedDuration String         @map("estimated_duration")
+  isActive          Boolean        @default(true) @map("is_active")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  serviceOrders     ServiceOrder[] @relation("ServiceCatalogOrders")
+
+  @@map("services")
+}
+
+// ------------------------------------------------------
+// 3. SERVICE ORDER / BOOKING ENTITY
+// ------------------------------------------------------
+model ServiceOrder {
+  id                 String       @id @default(cuid())
+  ticketNumber       String       @unique @map("ticket_number")
+  customerId         String       @map("customer_id")
+  customer           User         @relation("CustomerServiceOrders", fields: [customerId], references: [id], onDelete: Cascade)
+  serviceId          String?      @map("service_id")
+  service            Service?     @relation("ServiceCatalogOrders", fields: [serviceId], references: [id], onDelete: SetNull)
+  problemDescription String       @map("problem_description")
+  deviceType         String       @map("device_type") // Laptop, PC Desktop, Server/Network, Printer/Peripheral
+  deviceBrand        String       @map("device_brand")
+  deviceModel        String       @map("device_model")
+  attachment         String?      @map("attachment") // Photo / document URL
+  serviceType        String       @default("workshop") @map("service_type") // onsite | workshop
+  address            String?      // Required if onsite service
+  preferredSchedule  DateTime?    @map("preferred_schedule")
+  status             String       @default("PENDING") // PENDING, DIAGNOSING, QUOTED, IN_REPAIR, READY_FOR_PICKUP, COMPLETED, CANCELLED
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  // Relationships
+  diagnosis          Diagnosis?
+  quotation          Quotation?
+  payments           Payment[]
+
+  @@map("service_orders")
+}
+
+// ------------------------------------------------------
+// 4. DIAGNOSIS ENTITY
+// ------------------------------------------------------
+model Diagnosis {
+  id             String       @id @default(cuid())
+  serviceOrderId String       @unique @map("service_order_id")
+  serviceOrder   ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  diagnosis      String
+  recommendation String
+  estimatedCost  Float        @map("estimated_cost")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@map("diagnoses")
+}
+
+// ------------------------------------------------------
+// 5. QUOTATION ENTITY
+// ------------------------------------------------------
+model Quotation {
+  id              String          @id @default(cuid())
+  serviceOrderId  String          @unique @map("service_order_id")
+  serviceOrder    ServiceOrder    @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  quotationNumber String          @unique @map("quotation_number")
+  subtotal        Float
+  discount        Float           @default(0)
+  total           Float
+  notes           String?
+  status          String          @default("DRAFT") // DRAFT, SENT, APPROVED, REJECTED
+  approvedAt      DateTime?       @map("approved_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  // Relationships
+  items           QuotationItem[]
+
+  @@map("quotations")
+}
+
+// ------------------------------------------------------
+// 6. QUOTATION ITEM ENTITY
+// ------------------------------------------------------
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String    @map("quotation_id")
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Int       @default(1)
+  unitPrice   Float     @map("unit_price")
+  subtotal    Float
+
+  @@map("quotation_items")
+}
+
+// ------------------------------------------------------
+// 7. PAYMENT ENTITY
+// ------------------------------------------------------
+model Payment {
+  id              String       @id @default(cuid())
+  serviceOrderId  String       @map("service_order_id")
+  serviceOrder    ServiceOrder @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  amount          Float
+  paymentMethod   String       @map("payment_method") // BCA_VA, QRIS, CASH, BANK_TRANSFER
+  paymentStatus   String       @default("UNPAID") @map("payment_status") // UNPAID, PENDING_VERIFICATION, PAID, REFUNDED
+  paymentDate     DateTime?    @map("payment_date")
+  proofAttachment String?      @map("proof_attachment")
+  notes           String?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@map("payments")
+}
+
+// ------------------------------------------------------
+// 8. NOTIFICATION ENTITY
+// ------------------------------------------------------
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("SYSTEM") // ORDER_STATUS, QUOTATION_READY, PAYMENT_CONFIRMED, SYSTEM
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("notifications")
+}
+
+// ------------------------------------------------------
+// 9. KNOWLEDGE BASE ENTITY
+// ------------------------------------------------------
+model KnowledgeBase {
+  id        String   @id @default(cuid())
+  category  String   // FAQ, POLICY, SOP, PRICING, TROUBLESHOOTING
+  title     String
+  content   String   // The actual knowledge content
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("knowledge_base")
+}
+
+// ------------------------------------------------------
+// 10. NOTIFICATION RECIPIENT CONFIGURATION
+// ------------------------------------------------------
+// Daftar nomor WhatsApp penerima notifikasi otomatis.
+// Nomor Admin pengirim tetap memakai device Fonnte yang sudah
+// terhubung di environment (WHATSAPP_API_TOKEN) — tidak membuat device baru.
+model NotificationRecipient {
+  id                     String   @id @default(cuid())
+  name                   String
+  phone                  String   @unique // Nomor WhatsApp ternormalisasi (contoh: 628123456789)
+  recipientType          String   @default("ADMIN") @map("recipient_type") // ADMIN | CUSTOMER | TECHNICIAN | OTHER
+  // Opsional: kaitkan penerima bertipe CUSTOMER ke akun terdaftar,
+  // agar hanya menerima notifikasi pesanan miliknya sendiri.
+  userId                 String?  @map("user_id")
+  user                   User?    @relation("UserNotificationRecipients", fields: [userId], references: [id], onDelete: SetNull)
+  notifyNewOrder         Boolean  @default(true) @map("notify_new_order")
+  notifyStatusChange     Boolean  @default(true) @map("notify_status_change")
+  notifyServiceCompleted Boolean  @default(true) @map("notify_service_completed")
+  isActive               Boolean  @default(true) @map("is_active")
+  notes                  String?
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_recipients")
+}
